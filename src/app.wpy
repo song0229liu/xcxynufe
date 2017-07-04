@@ -1,0 +1,402 @@
+<style lang="less">
+@import 'assets/weui.wxss';
+page {
+  background-color: #f3f3f3;
+}
+.container {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  box-sizing: border-box;
+}
+.weui-panel {
+    background-color: #FFFFFF;
+    margin-top: 10px;
+    position: relative;
+    overflow: hidden;
+}
+.weui-panel:before {
+    content: " ";
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    height: 1px;
+    border-top: 1px solid #E5E5E5;
+    color: #E5E5E5;
+    -webkit-transform-origin: 0 0;
+    transform-origin: 0 0;
+    -webkit-transform: scaleY(0.5);
+    transform: scaleY(0.5);
+}
+.weui-panel:after {
+    content: " ";
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    right: 0;
+    height: 1px;
+    border-bottom: 1px solid #E5E5E5;
+    color: #E5E5E5;
+    -webkit-transform-origin: 0 100%;
+    transform-origin: 0 100%;
+    -webkit-transform: scaleY(0.5);
+    transform: scaleY(0.5);
+}
+.weui-panel__hd {
+    padding: 14px 15px 10px;
+    color: #999999;
+    font-size: 13px;
+    position: relative;
+}
+.page__title {
+    text-align: left;
+    font-size: 20px;
+    font-weight: 400;
+}
+
+.page__desc {
+    margin-top: 5px;
+    color: #888888;
+    text-align: left;
+    font-size: 14px;
+}
+.page__hd {
+  padding:40px;
+}
+
+</style>
+
+<script>
+import wepy from 'wepy'
+import 'wepy-async-function'
+
+export default class extends wepy.app {
+  config = {
+    pages: [
+      'pages/login',
+      'pages/index'
+    ],
+    window: {
+      backgroundTextStyle: 'light',
+      navigationBarBackgroundColor: '#1296db',
+      navigationBarTitleText: 'WeChat',
+      navigationBarTextStyle: 'white',
+      backgroundColor: '#f3f3f3'
+    }
+    // tabBar: {
+    //   borderStyle: 'white',
+    //   backgroundColor: '#fff',
+    //   selectedColor: '#1296db',
+    //   list: [{
+    //     pagePath: 'pages/home',
+    //     text: '首页',
+    //     iconPath: './assets/images/home.png',
+    //     selectedIconPath: './assets/images/home1.png'
+    //   }, {
+    //     pagePath: 'pages/my',
+    //     text: '个人中心',
+    //     iconPath: './assets/images/my.png',
+    //     selectedIconPath: './assets/images/my1.png'
+    //   }]
+    // }
+  }
+
+  globalData = {
+    userInfo: null,
+    openid: '',
+    Location: null,
+    loaduserInfo: false,
+    reqkey: '',
+    shareTicket: ''
+  }
+
+  constructor () {
+    super()
+    this.use('requestfix')
+  }
+
+  async onLaunch(e) {
+    if (e.shareTicket) {
+      this.globalData.shareTicket = e.shareTicket
+    }
+  }
+
+  scan () {
+    var self = this
+    wepy.scanCode({
+      onlyFromCamera: true,
+      success: (res) => {
+        console.log(res)
+        console.log('识别成功')
+        self.lzpost({
+          m: 'Ynufe',
+          c: 'Book',
+          a: 'get_book_info',
+          u: res.result
+        }, function (data) {
+          if (data.state) {
+            wepy.navigateTo({
+              url: 'addbook?u=' + res.result
+            })
+          } else {
+            wepy.showModal({
+              title: '上架提示',
+              content: data.msg,
+              showCancel: false
+            })
+          }
+        })
+      }
+    })
+  }
+
+  optionScan () {
+    var isscan = wepy.getStorageSync('isscan')
+    var self = this
+    if (!isscan) {
+      wepy.showModal({
+        title: '栗子书屋-温馨提示',
+        content: '直接扫描图书背面的条码即可上识别图书。',
+        success: function() {
+          wepy.setStorageSync('isscan',true)
+          self.scan()
+        }
+      })
+    }else{
+      self.scan()
+    }
+  }
+
+  getShareInfo (shareTicket = '') {
+    var that = this
+    return new Promise((resolve, reject) => {
+      wepy.getShareInfo({
+        shareTicket: shareTicket,
+        success: function (shareinfo) {
+          console.log('获取分享信息成功')
+          console.log(shareinfo)
+          resolve(shareinfo)
+        },
+        fail: function (e) {
+          reject(e)
+        }
+      })
+    }).then(function(shareinfo) {
+      return new Promise((resolve, reject) => {
+        that.lzpost({
+          m: 'Ynufe',
+          c: 'XcxLogin',
+          a: 'WxgroupDecode',
+          iv: shareinfo.iv,
+          encryptedData: shareinfo.encryptedData
+        }, function(groupinfo) {
+          console.log('群组信息解密成功')
+          resolve(groupinfo)
+        })
+      })
+    })
+  }
+
+  plogin () {
+    console.log('plogin')
+    var that = this
+    // 检测是否已经登录
+    var pl = new Promise(function(resolve, reject) {
+      wepy.checkSession({
+        // 登陆后直接获取reqkey，查看是否能正常获取到以及是否过期。
+        success: function(d) {
+          wepy.getStorage({
+            key: 'reqkey',
+            success: function(res) {
+              var timestamp = Date.parse(new Date()) / 1000
+              if (res.data.reqkey !== '' && timestamp < res.data.expires_in) {
+                resolve(res.data.reqkey)
+              } else {
+                reject()
+              }
+            },
+            // 检测未登录直接执行登陆程序，并获取reqkey
+            fail: function(res) {
+              reject()
+            }
+          })
+        },
+        fail: function() {
+          reject()
+        }
+      })
+    })
+    var result = pl.then(function(d) {
+      // 检测到登陆成功后不执行任何成，返回Promise并使用传入reqkey,等待下一步成功调用执行
+      return new Promise(function(resolve, reject) {
+        resolve(d)
+      })
+    }, function(d) {
+      // 检测未登录成功，执行小程序登陆程序，并远程请求用户的reqkey,之后等待下一步成功之后的调用
+      var p = new Promise(function(resolve, reject) {
+        wepy.login({
+          success: function (res) {
+            resolve(res)
+          }
+        })
+      })
+      return p.then((d) => {
+        return that.prequest({
+          m: 'Ynufe',
+          c: 'XcxLogin',
+          a: 'Login',
+          code: d.code
+        }).then((d) => {
+          wepy.setStorageSync('reqkey', d)
+          return new Promise(function(resolve, reject) {
+            resolve(d.reqkey)
+          })
+        })
+      })
+    })
+    return result
+  }
+
+  prequest (data) {
+    var apiurl = 'https://xxapi.yntulin.com/ynufeapi.php'
+    data.reqkey = this.globalData.reqkey
+    wepy.showNavigationBarLoading()
+    var p = new Promise(function(resolve, reject) {
+      wepy.request({
+        url: apiurl,
+        data: data,
+        method: 'POST',
+        header: {'content-type': 'application/x-www-form-urlencoded'},
+        success: function (res) {
+          var code = res.data.data.data_code
+          var resData = res.data.data.data_arr
+          if (code === 1) {
+            resolve(resData)
+            wepy.hideNavigationBarLoading()
+          }
+        }
+      })
+    })
+    return p
+  }
+
+  getUserInfo(cb) {
+    const that = this
+    if (this.globalData.userInfo) {
+      cb && cb(this.globalData.userInfo)
+      return
+    }
+    if (this.globalData.loaduserInfo) {
+      return
+    }
+    this.globalData.loaduserInfo = true
+    this.plogin().then((reqkey) => {
+      that.globalData.reqkey = reqkey
+      return new Promise(function(resolve, reject) {
+        wepy.getUserInfo({
+          withCredentials: true,
+          method: 'POST',
+          header: {'content-type': 'application/x-www-form-urlencoded'},
+          success (userres) {
+            console.log(userres)
+            var data = {
+              m: 'Ynufe',
+              c: 'XcxLogin',
+              a: 'WxDecode',
+              iv: userres.iv,
+              encryptedData: userres.encryptedData,
+              reqkey: reqkey
+            }
+            resolve(data)
+          },
+          fail (userres) {
+            var data = {
+              m: 'Ynufe',
+              c: 'UsersWx',
+              a: 'get_wxuser_info',
+              reqkey: reqkey
+            }
+            resolve(data)
+          }
+        })
+      })
+    }).then((d) => {
+      return this.prequest(d)
+    }).then((d) => {
+      that.globalData.userInfo = d
+      that.globalData.loaduserInfo = false
+      cb && cb(d)
+    })
+  }
+
+  getLocation() {
+    var that = this
+    return new Promise(function(resolve, reject) {
+      var location = that.globalData.location
+      if (location) {
+        resolve(location)
+      } else {
+        wepy.getLocation({
+          success: function (res) {
+            that.globalData.location = res
+            resolve(res)
+          },
+          fail: function(res) {
+            reject(res)
+          }
+        })
+      }
+    })
+  }
+  lzpost (data = {}, cb, isuser = true, loadtype = 1) {
+    var apiurl = 'https://xxapi.yntulin.com/ynufeapi.php'
+    if (!data.a) return
+    if (loadtype) {
+      wepy.showLoading({
+        title: '加载中...'
+      })
+    } else {
+      wepy.showNavigationBarLoading()
+    }
+    if (isuser) {
+      this.plogin().then((d) => {
+        data.reqkey = d
+        wepy.request({
+          url: apiurl,
+          data: data,
+          method: 'POST',
+          header: {'content-type': 'application/x-www-form-urlencoded'},
+          success: function (res) {
+            var code = res.data.data.data_code
+            var resData = res.data.data.data_arr
+            if (code === 1) {
+              cb && cb(resData)
+            }
+          },
+          complete : function () {
+            wepy.hideLoading()
+            wepy.hideNavigationBarLoading()
+          }
+        })
+      })
+    } else {
+      wepy.request({
+        url: apiurl,
+        data: data,
+        success: function (res) {
+          var code = res.data.data.data_code
+          var resData = res.data.data.data_arr
+          if (code === 1) {
+            cb && cb(resData)
+            wepy.hideLoading()
+            wepy.hideNavigationBarLoading()
+          }
+        }
+      })
+    }
+  }
+}
+</script>
